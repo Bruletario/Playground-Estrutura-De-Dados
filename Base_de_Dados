@@ -1,0 +1,205 @@
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+
+//struct da base de dados
+typedef struct {
+    char nome_base[105];      
+    int quantidade_elementos;  
+    char** registros;         
+} BaseDeDados;
+
+
+//le string limitada por ""
+void ler_string_entre_aspas(FILE* arquivo, char* buffer_destino) {
+    char caractere_lido;
+   
+    while ((caractere_lido = fgetc(arquivo)) != '"' && caractere_lido != EOF);
+    
+    int indice = 0;
+    
+    while ((caractere_lido = fgetc(arquivo)) != '"' && caractere_lido != EOF) {
+        buffer_destino[indice++] = caractere_lido;
+    }
+    buffer_destino[indice] = '\0'; // Finaliza a string
+}
+
+//substitui espaco em branco por _ 
+void formatar_para_sublinhado(const char* original, char* formatado) {
+    int i = 0;
+    while (original[i] != '\0') {
+        if (original[i] == ' ') {
+            formatado[i] = '_';
+        } else {
+            formatado[i] = original[i];
+        }
+        i++;
+    }
+    formatado[i] = '\0';
+}
+
+
+//executa a busca sequencial e retorna a qtd der passos
+int executar_busca_sequencial(BaseDeDados base, const char* chave_busca, bool* foi_encontrado) {
+    int comparacoes = 0;
+    *foi_encontrado = false;
+    
+    for (int i = 0; i < base.quantidade_elementos; i++) {
+        comparacoes++;
+        
+        if (strncmp(base.registros[i], chave_busca, strlen(chave_busca)) == 0) {
+            *foi_encontrado = true;
+            break;
+        }
+    }
+    return comparacoes;
+}
+
+//executa insertion sotr e retorna qtd de passos
+int executar_insertion_sort(char** array_temporario, int tamanho) {
+    int comparacoes = 0;
+    
+    for (int i = 1; i < tamanho; i++) {
+        char chave_temporaria[105];
+        strcpy(chave_temporaria, array_temporario[i]);
+        int j = i - 1;
+        
+        while (j >= 0) {
+            if (strcmp(array_temporario[j], chave_temporaria) > 0) {
+                comparacoes++; 
+                strcpy(array_temporario[j + 1], array_temporario[j]);
+                j--;
+            } else {
+                break;
+            }
+        }
+        strcpy(array_temporario[j + 1], chave_temporaria);
+    }
+    return comparacoes;
+}
+
+//executa busca binaria e retorna quantidade de passos
+int executar_busca_binaria(char** array_ordenado, int tamanho, const char* chave_busca, bool* foi_encontrado) {
+    int comparacoes = 0;
+    *foi_encontrado = false;
+    
+    int esquerda = 0;
+    int direita = tamanho - 1;
+    
+    while (esquerda <= direita) {
+        int meio = esquerda + (direita - esquerda) / 2;
+        
+        comparacoes++;
+        if (strncmp(array_ordenado[meio], chave_busca, strlen(chave_busca)) == 0) {
+            *foi_encontrado = true;
+            break;
+        }
+        
+        comparacoes++;
+        if (strcmp(chave_busca, array_ordenado[meio]) < 0) {
+            direita = meio - 1;
+        } else {
+            esquerda = meio + 1;
+        }
+    }
+    return comparacoes;
+}
+
+
+int main(int argc, char* argv[]) {
+    if (argc < 3) {
+        printf("Quantidade de argumentos invalida. Use: %s <entrada> <saida>\n", argv[0]);
+        return 1;
+    }
+
+    FILE* arquivo_entrada = fopen(argv[1], "r");
+    FILE* arquivo_saida = fopen(argv[2], "w");
+
+    if (arquivo_entrada == NULL || arquivo_saida == NULL) {
+        printf("Erro ao abrir os arquivos.\n");
+        if(arquivo_entrada) fclose(arquivo_entrada);
+        if(arquivo_saida) fclose(arquivo_saida);
+        return 1;
+    }
+
+    int qtd_bases;
+    fscanf(arquivo_entrada, "%d", &qtd_bases);
+    
+    BaseDeDados* array_bases = (BaseDeDados*)malloc(qtd_bases * sizeof(BaseDeDados));
+    
+    for (int i = 0; i < qtd_bases; i++) {
+        fscanf(arquivo_entrada, "%d", &array_bases[i].quantidade_elementos);
+        ler_string_entre_aspas(arquivo_entrada, array_bases[i].nome_base);
+        
+        array_bases[i].registros = (char**)malloc(array_bases[i].quantidade_elementos * sizeof(char*));
+        for (int j = 0; j < array_bases[i].quantidade_elementos; j++) {
+            array_bases[i].registros[j] = (char*)malloc(105 * sizeof(char));
+            ler_string_entre_aspas(arquivo_entrada, array_bases[i].registros[j]);
+        }
+    }
+
+    int qtd_pesquisas;
+    fscanf(arquivo_entrada, "%d", &qtd_pesquisas);
+    
+    for (int p = 0; p < qtd_pesquisas; p++) {
+        char termo_buscado[105];
+        char nome_base_alvo[105];
+        
+        ler_string_entre_aspas(arquivo_entrada, termo_buscado);
+        ler_string_entre_aspas(arquivo_entrada, nome_base_alvo);
+        
+        char termo_formatado[105];
+        char base_formatada[105];
+        formatar_para_sublinhado(termo_buscado, termo_formatado);
+        formatar_para_sublinhado(nome_base_alvo, base_formatada);
+
+        BaseDeDados* base_selecionada = NULL;
+        for (int i = 0; i < qtd_bases; i++) {
+            if (strcmp(array_bases[i].nome_base, nome_base_alvo) == 0) {
+                base_selecionada = &array_bases[i];
+                break;
+            }
+        }
+
+        if (base_selecionada == NULL) {
+            fprintf(arquivo_saida, "%s!%s->BIN[0],SEQ[0]\n", termo_formatado, base_formatada);
+            continue;
+        }
+
+        bool achou_seq = false;
+        int comps_seq = executar_busca_sequencial(*base_selecionada, termo_buscado, &achou_seq);
+
+        char** base_copiada = (char**)malloc(base_selecionada->quantidade_elementos * sizeof(char*));
+        for (int i = 0; i < base_selecionada->quantidade_elementos; i++) {
+            base_copiada[i] = (char*)malloc(105 * sizeof(char));
+            strcpy(base_copiada[i], base_selecionada->registros[i]);
+        }
+
+        int comps_sort = executar_insertion_sort(base_copiada, base_selecionada->quantidade_elementos);
+        
+        bool achou_bin = false;
+        int comps_bin = executar_busca_binaria(base_copiada, base_selecionada->quantidade_elementos, termo_buscado, &achou_bin);
+
+        for (int i = 0; i < base_selecionada->quantidade_elementos; i++) free(base_copiada[i]);
+        free(base_copiada);
+
+        char simbolo = achou_seq ? '@' : '!';
+        fprintf(arquivo_saida, "%s%c%s->BIN[%d+%d],SEQ[%d]\n", 
+                termo_formatado, simbolo, base_formatada, comps_sort, comps_bin, comps_seq);
+    }
+
+    for (int i = 0; i < qtd_bases; i++) {
+        for (int j = 0; j < array_bases[i].quantidade_elementos; j++) {
+            free(array_bases[i].registros[j]);
+        }
+        free(array_bases[i].registros);
+    }
+    free(array_bases);
+    
+    fclose(arquivo_entrada);
+    fclose(arquivo_saida);
+
+    return 0;
+}
