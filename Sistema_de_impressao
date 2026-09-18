@@ -1,0 +1,253 @@
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+
+//struct pra armazenar os dados de um docs
+typedef struct Documento {
+    char nome[51];
+    int paginas;
+} Documento;
+
+//no para usar nas filas e pilhas
+typedef struct NoDocumento {
+    Documento dados_documento;
+    struct NoDocumento* proximo;
+} NoDocumento;
+
+//fila para organiz ordem de docs
+typedef struct Fila {
+    NoDocumento* inicio_fila;
+    NoDocumento* fim_fila;
+} Fila;
+
+//pilha para cada impressora e pilha geral
+typedef struct Pilha {
+    NoDocumento* topo_pilha;
+} Pilha;
+
+//estado da impressora
+typedef struct Impressora {
+    char nome[51];
+    bool esta_ocupada;
+    int tempo_livre;              
+    Documento documento_atual;    
+    Pilha pilha_historico;       
+} Impressora;
+
+
+//inicia a fila
+void inicializar_fila(Fila* fila) {
+    fila->inicio_fila = NULL;
+    fila->fim_fila = NULL;
+}
+
+//verifica se a fila esta vazia
+bool fila_vazia(Fila* fila) {
+    return (fila->inicio_fila == NULL);
+}
+
+//add um novo documento no final da fila 
+void enfileirar_documento(Fila* fila, Documento novo_documento) {
+    NoDocumento* novo_no = (NoDocumento*)malloc(sizeof(NoDocumento));
+    novo_no->dados_documento = novo_documento;
+    novo_no->proximo = NULL;
+
+    if (fila_vazia(fila)) {
+        fila->inicio_fila = novo_no;
+    } else {
+        fila->fim_fila->proximo = novo_no;
+    }
+    fila->fim_fila = novo_no;
+}
+
+//remove e retorna o documento do inicio da fila
+Documento desenfileirar_documento(Fila* fila) {
+    Documento doc_retornado = {"", 0};
+    if (fila_vazia(fila)) return doc_retornado;
+
+    NoDocumento* no_remover = fila->inicio_fila;
+    doc_retornado = no_remover->dados_documento;
+
+    fila->inicio_fila = fila->inicio_fila->proximo;
+    if (fila->inicio_fila == NULL) {
+        fila->fim_fila = NULL;
+    }
+
+    free(no_remover);
+    return doc_retornado;
+}
+
+//inicia a pilha com topo nulo
+void inicializar_pilha(Pilha* pilha) {
+    pilha->topo_pilha = NULL;
+}
+
+bool pilha_vazia(Pilha* pilha) {
+    return (pilha->topo_pilha == NULL);
+}
+
+//ass um documento no topo da pilha
+void empilhar_documento(Pilha* pilha, Documento novo_documento) {
+    NoDocumento* novo_no = (NoDocumento*)malloc(sizeof(NoDocumento));
+    novo_no->dados_documento = novo_documento;
+    novo_no->proximo = pilha->topo_pilha; //novo no aponta para o antigo topo
+    pilha->topo_pilha = novo_no;          //novo no vira o topo
+}
+
+//remove e retorna o documento do topo da pilh
+Documento desempilhar_documento(Pilha* pilha) {
+    Documento doc_retornado = {"", 0};
+    if (pilha_vazia(pilha)) return doc_retornado;
+
+    NoDocumento* no_remover = pilha->topo_pilha;
+    doc_retornado = no_remover->dados_documento;
+    
+    pilha->topo_pilha = no_remover->proximo;
+    free(no_remover);
+    
+    return doc_retornado;
+}
+
+//limpa todos os nos restantes em uma pilha
+void liberar_pilha(Pilha* pilha) {
+    while (!pilha_vazia(pilha)) {
+        desempilhar_documento(pilha);
+    }
+}
+
+//simulacao do tempo e escalonamento de impressores
+void executar_simulacao(Fila* fila_pendentes, Impressora* array_impressoras, int qtd_impressoras, int qtd_documentos, FILE* arquivo_saida) {
+    int tempo_atual_global = 0;
+    int documentos_concluidos = 0;
+    int total_paginas_impressas = 0;
+    
+    Pilha pilha_global_entregas;
+    inicializar_pilha(&pilha_global_entregas);
+
+    //loop continua ate todos os docs passarem pelas impressoras
+    while (documentos_concluidos < qtd_documentos) {
+        
+        //verifica se alguma impressora terminou sua tarefa neste exato minuto
+        for (int i = 0; i < qtd_impressoras; i++) {
+            if (array_impressoras[i].esta_ocupada && array_impressoras[i].tempo_livre == tempo_atual_global) {
+                // Impressora concluiu! Movemos o documento concluído para a pilha global
+                empilhar_documento(&pilha_global_entregas, array_impressoras[i].documento_atual);
+                array_impressoras[i].esta_ocupada = false;
+                documentos_concluidos++;
+            }
+        }
+
+        //Distribui os prox docs da fila para impressoras vazuas
+        for (int i = 0; i < qtd_impressoras; i++) {
+            if (!array_impressoras[i].esta_ocupada && !fila_vazia(fila_pendentes)) {
+                
+                Documento doc_alocado = desenfileirar_documento(fila_pendentes);
+                
+                //ajusta impressora p trabalhar no novo docs
+                array_impressoras[i].documento_atual = doc_alocado;
+                array_impressoras[i].esta_ocupada = true;
+                array_impressoras[i].tempo_livre = tempo_atual_global + doc_alocado.paginas;
+                total_paginas_impressas += doc_alocado.paginas;
+
+                //add ao historicvo da impressora 
+                empilhar_documento(&(array_impressoras[i].pilha_historico), doc_alocado);
+
+                //imprimir alocacao no arquivo de saida
+                fprintf(arquivo_saida, "%s:", array_impressoras[i].nome);
+                NoDocumento* atual_historico = array_impressoras[i].pilha_historico.topo_pilha;
+                
+                //varre a pilha de historico para imprimir
+                while (atual_historico != NULL) {
+                    fprintf(arquivo_saida, "%s-%dp", atual_historico->dados_documento.nome, atual_historico->dados_documento.paginas);
+                    if (atual_historico->proximo != NULL) {
+                        fprintf(arquivo_saida, ",");
+                    }
+                    atual_historico = atual_historico->proximo;
+                }
+                fprintf(arquivo_saida, "\n");
+            }
+        }
+
+        // Descobre quando será o próximo evento de termino de impressao
+        int proximo_evento_tempo = 2147483647; // Max Int como valor inicial
+        bool pode_avancar_tempo = true;
+        
+        for (int i = 0; i < qtd_impressoras; i++) {
+            if (array_impressoras[i].esta_ocupada && array_impressoras[i].tempo_livre < proximo_evento_tempo) {
+                proximo_evento_tempo = array_impressoras[i].tempo_livre;
+            }
+            //se tem uma impressora livre e ainda tem docs nao pula o tempo 
+            if (!array_impressoras[i].esta_ocupada && !fila_vazia(fila_pendentes)) {
+                pode_avancar_tempo = false;
+            }
+        }
+
+        //otimizacao tempo
+        if (pode_avancar_tempo && proximo_evento_tempo != 2147483647) {
+            tempo_atual_global = proximo_evento_tempo;
+        } else {
+            tempo_atual_global++;
+        }
+    }
+
+    //imprime relatorio da pilha final
+    fprintf(arquivo_saida, "%dp\n", total_paginas_impressas);
+    while (!pilha_vazia(&pilha_global_entregas)) {
+        Documento doc_topo = desempilhar_documento(&pilha_global_entregas);
+        fprintf(arquivo_saida, "%s-%dp\n", doc_topo.nome, doc_topo.paginas);
+    }
+}
+
+int main(int argc, char* argv[]) {
+    if (argc < 3) {
+        printf("Quantidade de argumentos invalida. Use: %s <entrada> <saida>\n", argv[0]);
+        return 1;
+    }
+
+    FILE* arquivo_entrada = fopen(argv[1], "r");
+    FILE* arquivo_saida = fopen(argv[2], "w");
+
+    if (arquivo_entrada == NULL || arquivo_saida == NULL) {
+        printf("Erro ao abrir os arquivos.\n");
+        if(arquivo_entrada) fclose(arquivo_entrada);
+        if(arquivo_saida) fclose(arquivo_saida);
+        return 1;
+    }
+
+    int num_impressoras;
+    fscanf(arquivo_entrada, "%d", &num_impressoras);
+    
+    Impressora* vetor_impressoras = (Impressora*)malloc(num_impressoras * sizeof(Impressora));
+    for (int i = 0; i < num_impressoras; i++) {
+        fscanf(arquivo_entrada, "%s", vetor_impressoras[i].nome);
+        vetor_impressoras[i].esta_ocupada = false;
+        vetor_impressoras[i].tempo_livre = 0;
+        inicializar_pilha(&(vetor_impressoras[i].pilha_historico));
+    }
+
+    int num_documentos;
+    fscanf(arquivo_entrada, "%d", &num_documentos);
+    
+    Fila fila_pendentes;
+    inicializar_fila(&fila_pendentes);
+
+    for (int i = 0; i < num_documentos; i++) {
+        Documento novo_doc;
+        fscanf(arquivo_entrada, "%s %d", novo_doc.nome, &novo_doc.paginas);
+        enfileirar_documento(&fila_pendentes, novo_doc);
+    }
+
+    executar_simulacao(&fila_pendentes, vetor_impressoras, num_impressoras, num_documentos, arquivo_saida);
+
+    for (int i = 0; i < num_impressoras; i++) {
+        liberar_pilha(&(vetor_impressoras[i].pilha_historico));
+    }
+    free(vetor_impressoras);
+    
+    fclose(arquivo_entrada);
+    fclose(arquivo_saida);
+
+    return 0;
+}
